@@ -1,0 +1,328 @@
+options:
+  base-cost-per-item: 5
+
+  speed-start: 2
+  speed-cap: 8
+  speed-up-seconds: 10
+
+  payer-timeout: 20
+
+
+# ---------------------------------
+# Admin cleanup command (reconcile stale entries)
+# ---------------------------------
+command /fastfurnacecleanup:
+  permission: fastfurnace.admin
+  permission message: &cYou do not have permission.
+  trigger:
+    set {_removed} to 0
+    loop {ff.list::*}:
+      set {_l} to loop-value
+      set {_b} to block at {_l}
+      if {_b} is not furnace:
+        remove {_l} from {ff.list::*}
+        delete {ff.enabled::%{_l}%}
+        delete {ff.owner::%{_l}%}
+        delete {ff.ownerName::%{_l}%}
+        delete {ff.last::%{_l}%}
+        delete {ff.lastTime::%{_l}%}
+        delete {ff.stopped::%{_l}%}
+
+        delete {ff.batchCount::%{_l}%}
+        delete {ff.batchCost::%{_l}%}
+
+        delete {ff.runSeconds::%{_l}%}
+        delete {ff.tickCounter::%{_l}%}
+
+        add 1 to {_removed}
+    send "&aFast Furnace cleanup complete. Removed &e%{_removed}%&a stale entries."
+
+
+# ---------------------------------
+# Main command with subcommands
+# /fastfurnace give (admin)
+# /fastfurnace purge <playerName> (admin)  <-- purges by stored owner name
+# /fastfurnace stopall
+# /fastfurnace startall
+# ---------------------------------
+command /fastfurnace [<text>] [<text>]:
+  trigger:
+    # ---------------- GIVE (admin) ----------------
+    if arg 1 is "give":
+      if player does not have permission "fastfurnace.admin":
+        send "&cYou do not have permission."
+        stop
+      give player a furnace named "&6Fast Furnace" with lore "&7Speed: 3x +1x/10s (cap 8x)" and "&7Cost ramps with speed" and "&7No fuel required"
+      send "&aFast Furnace given."
+      stop
+
+    # ---------------- PURGE (admin) ----------------
+    # /fastfurnace purge <playerName>
+    if arg 1 is "purge":
+      if player does not have permission "fastfurnace.admin":
+        send "&cYou do not have permission."
+        stop
+      if arg 2 is not set:
+        send "&cUsage: &e/fastfurnace purge <playerName>"
+        stop
+
+      set {_targetName} to arg 2
+      set {_purged} to 0
+
+      loop {ff.list::*}:
+        set {_l} to loop-value
+        if {ff.ownerName::%{_l}%} is set:
+          if {ff.ownerName::%{_l}%} is {_targetName}:
+            set {_b} to block at {_l}
+            if {_b} is furnace:
+              set fuel burn time of {_b} to 0 seconds
+
+            remove {_l} from {ff.list::*}
+            delete {ff.enabled::%{_l}%}
+            delete {ff.owner::%{_l}%}
+            delete {ff.ownerName::%{_l}%}
+            delete {ff.last::%{_l}%}
+            delete {ff.lastTime::%{_l}%}
+            delete {ff.stopped::%{_l}%}
+
+            delete {ff.batchCount::%{_l}%}
+            delete {ff.batchCost::%{_l}%}
+
+            delete {ff.runSeconds::%{_l}%}
+            delete {ff.tickCounter::%{_l}%}
+
+            add 1 to {_purged}
+
+      send "&aPurged &e%{_purged}%&a Fast Furnace entries for &e%{_targetName}%&a."
+      stop
+
+    # ---------------- STOP ALL ----------------
+    if arg 1 is "stopall":
+      set {_count} to 0
+      loop {ff.list::*}:
+        set {_l} to loop-value
+        if {ff.owner::%{_l}%} is player's uuid:
+          set {ff.stopped::%{_l}%} to true
+          set {_b} to block at {_l}
+          if {_b} is furnace:
+            set fuel burn time of {_b} to 0 seconds
+
+          delete {ff.runSeconds::%{_l}%}
+          delete {ff.tickCounter::%{_l}%}
+          delete {ff.batchCount::%{_l}%}
+          delete {ff.batchCost::%{_l}%}
+
+          add 1 to {_count}
+      send "&aStopped &e%{_count}%&a Fast Furnaces you own."
+      stop
+
+    # ---------------- START ALL ----------------
+    if arg 1 is "startall":
+      set {_count} to 0
+      loop {ff.list::*}:
+        set {_l} to loop-value
+        if {ff.owner::%{_l}%} is player's uuid:
+          delete {ff.stopped::%{_l}%}
+
+          delete {ff.runSeconds::%{_l}%}
+          delete {ff.tickCounter::%{_l}%}
+          delete {ff.batchCount::%{_l}%}
+          delete {ff.batchCost::%{_l}%}
+
+          add 1 to {_count}
+      send "&aRe-enabled &e%{_count}%&a Fast Furnaces you own."
+      stop
+
+    # ---------------- HELP ----------------
+    send "&6Fast Furnace Commands:"
+    send "&e/fastfurnace stopall &7- stop all your Fast Furnaces"
+    send "&e/fastfurnace startall &7- re-enable them"
+    send "&e/fastfurnace give &7- admin only"
+    send "&e/fastfurnace purge <playerName> &7- admin: hard purge a player's entries"
+    send "&e/fastfurnacecleanup &7- admin: cleanup stale entries"
+
+
+# ---------------------------------
+# Place / break tracking
+# ---------------------------------
+on place of furnace:
+  if name of event-item is "&6Fast Furnace":
+    set {_l} to location of event-block
+    set {ff.enabled::%{_l}%} to true
+    set {ff.owner::%{_l}%} to player's uuid
+    set {ff.ownerName::%{_l}%} to player's name
+    add {_l} to {ff.list::*}
+
+on break of furnace:
+  set {_l} to location of event-block
+  remove {_l} from {ff.list::*}
+
+  delete {ff.enabled::%{_l}%}
+  delete {ff.owner::%{_l}%}
+  delete {ff.ownerName::%{_l}%}
+  delete {ff.last::%{_l}%}
+  delete {ff.lastTime::%{_l}%}
+  delete {ff.stopped::%{_l}%}
+
+  delete {ff.batchCount::%{_l}%}
+  delete {ff.batchCost::%{_l}%}
+
+  delete {ff.runSeconds::%{_l}%}
+  delete {ff.tickCounter::%{_l}%}
+
+
+# ---------------------------------
+# Last interactor (payer candidate)
+# ---------------------------------
+on right click on furnace:
+  set {_l} to location of clicked block
+  if {ff.enabled::%{_l}%} is true:
+    set {ff.last::%{_l}%} to player's uuid
+    set {ff.lastTime::%{_l}%} to now
+    delete {ff.stopped::%{_l}%}
+
+
+# ---------------------------------
+# Charge per item smelted + batch message every 10 items
+# Cost ramps with speed: base + stage, where stage increases every 10 seconds
+# ---------------------------------
+on smelt:
+  set {_b} to event-block
+  if {_b} is not furnace:
+    stop
+
+  set {_l} to location of {_b}
+  if {ff.enabled::%{_l}%} is not true:
+    stop
+
+  if {ff.stopped::%{_l}%} is true:
+    set fuel burn time of {_b} to 0 seconds
+    stop
+
+  # payer selection
+  set {_payerUUID} to {ff.owner::%{_l}%}
+  if {ff.last::%{_l}%} is set:
+    set {_age} to difference between now and {ff.lastTime::%{_l}%}
+    if {_age} <= {@payer-timeout} seconds:
+      set {_payerUUID} to {ff.last::%{_l}%}
+
+  set {_payer} to offline player from {_payerUUID}
+  if {_payer} is not online:
+    set fuel burn time of {_b} to 0 seconds
+    stop
+
+  # compute current speed stage from run time
+  if {ff.runSeconds::%{_l}%} is not set:
+    set {ff.runSeconds::%{_l}%} to 0
+
+  set {_stage} to floor({ff.runSeconds::%{_l}%} / {@speed-up-seconds})
+  set {_maxStage} to {@speed-cap} - {@speed-start}
+  if {_stage} > {_maxStage}:
+    set {_stage} to {_maxStage}
+
+  set {_speed} to {@speed-start} + {_stage}
+  if {_speed} > {@speed-cap}:
+    set {_speed} to {@speed-cap}
+
+  set {_cost} to {@base-cost-per-item} + {_stage}
+
+  if money of {_payer} < {_cost}:
+    send "&cFast Furnace stopped: not enough money (&e%{_cost}% EmpBucks per item&c)." to {_payer}
+    set fuel burn time of {_b} to 0 seconds
+    stop
+
+  remove {_cost} from money of {_payer}
+
+  # batch accounting per furnace (10 items)
+  add 1 to {ff.batchCount::%{_l}%}
+  add {_cost} to {ff.batchCost::%{_l}%}
+
+  if {ff.batchCount::%{_l}%} >= 10:
+    set {ff.batchCount::%{_l}%} to 0
+
+    set {_w} to name of world of {_l}
+    set {_x} to floor(x-coordinate of {_l})
+    set {_y} to floor(y-coordinate of {_l})
+    set {_z} to floor(z-coordinate of {_l})
+
+    set {_out} to result slot of {_b}
+    if {_out} is air:
+      set {_outType} to "items"
+    else:
+      set {_outType} to type of {_out}
+
+    if {ff.batchCost::%{_l}%} is not set:
+      set {ff.batchCost::%{_l}%} to 0
+
+    set {_totalCost} to {ff.batchCost::%{_l}%}
+    set {ff.batchCost::%{_l}%} to 0
+
+    send "&6Fast Furnace &7@ &e%{_w}% &7(%{_x}%, %{_y}%, %{_z}%) &8? &aSmelted 10 %{_outType}% &7for &e%{_totalCost}% EmpBucks &7at &b%{_speed}%x" to {_payer}
+
+
+# ---------------------------------
+# Core engine: force burn time + ramp speed + tick acceleration
+# Speed: 3x then +1 every 10s up to 8x
+# ---------------------------------
+every tick:
+  loop {ff.list::*}:
+    set {_l} to loop-value
+    set {_b} to block at {_l}
+
+    if {_b} is not furnace:
+      continue
+    if {ff.enabled::%{_l}%} is not true:
+      continue
+
+    if {ff.stopped::%{_l}%} is true:
+      set fuel burn time of {_b} to 0 seconds
+      delete {ff.runSeconds::%{_l}%}
+      delete {ff.tickCounter::%{_l}%}
+      continue
+
+    if ore slot of {_b} is air:
+      set fuel burn time of {_b} to 0 seconds
+      delete {ff.runSeconds::%{_l}%}
+      delete {ff.tickCounter::%{_l}%}
+      continue
+
+    # keep it running without fuel
+    set fuel burn time of {_b} to 5 seconds
+
+    # tick -> seconds
+    if {ff.tickCounter::%{_l}%} is not set:
+      set {ff.tickCounter::%{_l}%} to 0
+    add 1 to {ff.tickCounter::%{_l}%}
+
+    if {ff.runSeconds::%{_l}%} is not set:
+      set {ff.runSeconds::%{_l}%} to 0
+
+    if {ff.tickCounter::%{_l}%} >= 20:
+      set {ff.tickCounter::%{_l}%} to 0
+      add 1 to {ff.runSeconds::%{_l}%}
+
+    # compute speed
+    set {_stage} to floor({ff.runSeconds::%{_l}%} / {@speed-up-seconds})
+    set {_maxStage} to {@speed-cap} - {@speed-start}
+    if {_stage} > {_maxStage}:
+      set {_stage} to {_maxStage}
+
+    set {_speed} to {@speed-start} + {_stage}
+    if {_speed} > {@speed-cap}:
+      set {_speed} to {@speed-cap}
+
+    # accelerate cook progress (real speedup)
+    set {_ct} to cook time of {_b}
+    if {_ct} > 0 ticks:
+      set {_extra} to {_speed} - 1
+      loop {_extra} times:
+        add 1 tick to {_ct}
+
+      set {_total} to total cook time of {_b}
+      if {_total} is not set:
+        set {_total} to 200 ticks
+
+      if {_ct} > {_total}:
+        set {_ct} to {_total}
+
+      set cook time of {_b} to {_ct}
